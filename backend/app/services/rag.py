@@ -1,8 +1,8 @@
-"""RAG arama servisi (pgvector cosine similarity)."""
+"""RAG arama servisi (pgvector cosine similarity + PostgreSQL FTS + RRF)."""
 
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.llm import get_embeddings
@@ -11,6 +11,47 @@ from app.models.document import Chunk, Document
 # Bu eşiğin altındaki benzerlikler ilgisiz kabul edilir. Faz 3a'da gerçek modelle
 # ölçülerek belirlendi: ilgili sorgu 0.68-0.82, ilgisiz sorgu 0.40-0.47 üretti.
 MIN_SIMILARITY = 0.55
+
+# RRF formülündeki yumuşatma sabiti: score = sum(1 / (k + rank)).
+RRF_K = 60
+
+
+def rrf_fuse(
+    vector_results: list[dict],
+    bm25_results: list[dict],
+    k: int = RRF_K,
+    vector_weight: float = 1.0,
+    bm25_weight: float = 1.0,
+) -> list[dict]:
+    """İki sıralı listeyi Reciprocal Rank Fusion ile birleştirir.
+
+    Her kaynağın katkısı 1 / (k + rank) (rank 1'den başlar); aynı chunk
+    her iki listede varsa katkılar toplanır. Sonuçlar toplam skora göre
+    büyükten küçüğe sıralanır; beraberlikte chunk_id'ye göre deterministik.
+
+    Çıktıdaki her elemana retrieval_source ("vector", "bm25" veya "both")
+    eklenir; similarity alanı birleşik RRF skoru olur.
+    """
+    fused: dict[object, dict] = {}
+
+    for rank, item in enumerate(vector_results):
+        entry = fused.setdefault(
+            item["chunk_id"],
+            {**item, "retrieval_source": "vector", "rrf_score": 0.0},
+        )
+        entry["rrf_score"] += vector_weight / (k + rank + 1)
+
+    for rank, item in enumerate(bm25_results):
+        entry = fused.setdefault(
+            item["chunk_id"],
+            {**item, "retrieval_source": "bm25", "rrf_score": 0.0},
+        )
+        if entry["retrieval_source"] == "vector":
+            entry["retrieval_source"] = "both"
+        entry["rrf_score"] += bm25_weight / (k + rank + 1)
+
+    results = [{**entry, "similarity": entry.pop("rrf_score")} for entry in fused.values()]
+    return sorted(results, key=lambda r: (r["similarity"], str(r["chunk_id"])), reverse=True)
 
 
 class RAGService:
@@ -53,6 +94,56 @@ class RAGService:
             }
             for chunk, title, sim in rows
         ]
+
+    async def search_bm25(self, query: str, limit: int = 20) -> list[dict]:
+        """PostgreSQL FTS ile kelime tabanlı arama (websearch_to_tsquery + ts_rank).
+
+        tsv_content generated column'u 'simple' config ile üretilir; aynı config
+        sorguda da kullanıldığı için token'lar birebir eşleşir. Owner filtresi
+        JOIN ile uygulanır. similarity alanı ts_rank skoru taşır (0-sınırlı
+        değildir; yalnızca sıralama anlamı taşır).
+        """
+        if not query.strip():
+            return []
+        tsquery = func.websearch_to_tsquery("simple", query)
+        rank = func.ts_rank(Chunk.tsv_content, tsquery).label("rank")
+        stmt = (
+            select(Chunk, Document.title, rank)
+            .join(Document, Document.id == Chunk.document_id)
+            .where(Document.owner_id == self.owner_id)
+            .where(Chunk.tsv_content.op("@@")(tsquery))
+            .order_by(rank.desc())
+            .limit(limit)
+        )
+        rows = (await self.db.execute(stmt)).all()
+        return [
+            {
+                "chunk_id": chunk.id,
+                "document_id": chunk.document_id,
+                "document_title": title,
+                "content": chunk.content,
+                "similarity": float(rank_val),
+                "chunk_index": chunk.chunk_index,
+            }
+            for chunk, title, rank_val in rows
+        ]
+
+    async def search_hybrid(self, query: str, limit: int = 5, alpha: float = 0.5) -> list[dict]:
+        """Vektör + BM25 sonuçlarını RRF ile birleştirir.
+
+        alpha: 0.0 → yalnız BM25, 1.0 → yalnız vektör, 0.5 → eşit ağırlık.
+        Her kaynaktan limit * 2 aday toplanır; birleşik listeden ilk limit döner.
+        """
+        pool = limit * 2
+        vector_results = await self.search(query, limit=pool) if alpha > 0.0 else []
+        bm25_results = await self.search_bm25(query, limit=pool) if alpha < 1.0 else []
+        fused = rrf_fuse(
+            vector_results,
+            bm25_results,
+            vector_weight=alpha,
+            bm25_weight=1.0 - alpha,
+        )
+        return fused[:limit]
 
     async def get_all_chunks(self, document_id: UUID) -> list[dict]:
         """Belirtilen dokümanın TÜM chunk'larını döner (chunk_index sıralı).

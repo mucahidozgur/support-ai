@@ -1,0 +1,12 @@
+# Python (build context'te yer kaplamasın, imaja girmesin)
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+
+# Loglar ve env
+*.log
+.env

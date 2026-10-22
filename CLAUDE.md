@@ -30,8 +30,8 @@ SupportHub — see `docs/CLIENT_BRIEF.md` for full brief.
 - **Vector DB:** PostgreSQL 16 + pgvector
 - **Frontend:** Next.js 14 App Router, TypeScript, Tailwind, Zustand
 - **Infra:** Docker Compose (postgres + api + web)
-- **New additions (this project):** BM25 (rank-bm25), cross-encoder (bge-reranker-v2-m3),
-  RAGAS, Langfuse, unstructured
+- **New additions (this project):** BM25 (PostgreSQL FTS: tsvector/websearch_to_tsquery/ts_rank),
+  cross-encoder (bge-reranker-v2-m3), RAGAS, Langfuse, unstructured
 
 ## Architecture
 See `docs/ARCHITECTURE.md` (will be created in Faz 9).
@@ -47,14 +47,17 @@ For now: base is docuflow-ai fork. Ports below.
 (docuflow 3000/8000/5432, mizan 3001/8001/5433 — no conflicts)
 
 ## Current state
-**Faz 0 done:** Forked from docuflow-ai, rebranded to Support AI, ports 5434/8002/3002,
-own DB (support/support_test) + Docker Compose stack running. Host dev venv:
-`backend/.venv` (Python 3.13; Docker image uses 3.11).
-Next: Faz 1 (hybrid search BM25 + vector + RRF).
+**Faz 0-1 done:** Forked from docuflow-ai, rebranded to Support AI, ports 5434/8002/3002,
+own DB (support/support_test) + Docker Compose stack running. Hybrid search live:
+`POST /api/ai/search/hybrid` (vector + BM25/FTS + RRF, alpha ağırlıklı).
+Host dev venv: `backend/.venv` (Python 3.13; Docker image uses 3.11).
+Not: api Docker imajı rebuild'i ertelendi (ağ timeout + bellek); dev ortamı bind
+mount + --reload ile yeni kodu zaten çalıştırıyor. Rebuild: `docker compose build api`.
+Next: Faz 2 (cross-encoder reranking).
 
 ## Roadmap
 - [x] Faz 0: Fork base + port + branding
-- [ ] Faz 1: Hybrid search (BM25 + vector + RRF)
+- [x] Faz 1: Hybrid search (BM25 + vector + RRF)
 - [ ] Faz 2: Cross-encoder reranking
 - [ ] Faz 3: Semantic + hierarchical chunking
 - [ ] Faz 4: RAGAS evaluation + synthetic test set
@@ -73,7 +76,7 @@ Next: Faz 1 (hybrid search BM25 + vector + RRF).
 - No new dependency without justification in the commit message
 
 ## Testing
-- `cd backend && pytest -v` — currently 47 tests passing (base)
+- `cd backend && pytest -v` — currently 55 tests passing
 - After each phase: must remain ≥47 passing + add new tests
 - DB isolation: tests use `support_test` DB, never touch `support` DB
 

@@ -11,8 +11,10 @@ RUN apt-get update \
 # pip install . paket keşfi için bir paket dizini ister; bu yüzden geçici bir app
 # iskeleti oluşturulur. Gerçek kaynak sonraki katmanda COPY ile gelir (çalışma
 # anında compose'taki ./backend:/app bind mount'u zaten kaynağı sağlar).
+# --timeout/--retries: yavaş ağlarda büyük wheel'lerin (torch vb.) indirilmesini
+# dayanıklı kılar (ReadTimeoutError nedeniyle build başarısızlığı yaşanıyordu).
 COPY pyproject.toml ./
-RUN mkdir -p app && touch app/__init__.py && pip install --no-cache-dir .
+RUN mkdir -p app && touch app/__init__.py && pip install --no-cache-dir --timeout 120 --retries 5 .
 
 COPY . .
 

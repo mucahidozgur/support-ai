@@ -1,5 +1,6 @@
 """AI katmanı ile ilgili Pydantic modelleri."""
 
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -21,6 +22,14 @@ class SearchRequest(BaseModel):
     limit: int = Field(default=5, ge=1, le=20)
 
 
+class HybridSearchRequest(BaseModel):
+    """Hybrid (vektör + BM25 + RRF) arama isteği."""
+
+    query: str = Field(min_length=1, max_length=2000)
+    limit: int = Field(default=5, ge=1, le=20)
+    alpha: float = Field(default=0.5, ge=0.0, le=1.0, description="0=BM25, 1=vektör")
+
+
 class SearchResultItem(BaseModel):
     """Tek bir chunk arama sonucu."""
 
@@ -29,6 +38,8 @@ class SearchResultItem(BaseModel):
     content: str
     similarity: float
     chunk_index: int
+    # Hybrid aramada dolu: chunk'ın hangi kaynaktan geldiği; /search'te None.
+    retrieval_source: Literal["vector", "bm25", "both"] | None = None
 
 
 class SearchResponse(BaseModel):

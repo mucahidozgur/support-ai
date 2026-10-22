@@ -12,7 +12,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from app.api.deps import get_current_user
 from app.core.db import get_db
-from app.schemas.ai import ChatRequest, SearchRequest, SearchResponse
+from app.schemas.ai import ChatRequest, HybridSearchRequest, SearchRequest, SearchResponse
 from app.schemas.auth import UserInfo
 from app.services.agent import AgentService
 from app.services.chat import ChatService
@@ -31,6 +31,17 @@ async def search(body: SearchRequest, db: DbDep, current_user: UserDep) -> Searc
     """RAG ile en alakalı chunk'ları arar."""
     results = await RAGService(db, UUID(current_user.id)).search(
         body.query, body.document_ids, body.limit
+    )
+    return SearchResponse(query=body.query, results=results)
+
+
+@router.post("/search/hybrid", response_model=SearchResponse)
+async def search_hybrid(
+    body: HybridSearchRequest, db: DbDep, current_user: UserDep
+) -> SearchResponse:
+    """Vektör + BM25 aramalarını RRF ile birleştirip en alakalı chunk'ları döndürür."""
+    results = await RAGService(db, UUID(current_user.id)).search_hybrid(
+        body.query, body.limit, body.alpha
     )
     return SearchResponse(query=body.query, results=results)
 

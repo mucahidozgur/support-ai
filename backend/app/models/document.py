@@ -4,8 +4,8 @@ import uuid
 from datetime import datetime
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Computed, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy.dialects.postgresql import TSVECTOR, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.config import get_settings
@@ -44,6 +44,13 @@ class Chunk(Base):
     content: Mapped[str] = mapped_column(Text)
     embedding: Mapped[list[float]] = mapped_column(Vector(get_settings().EMBEDDING_DIM))
     chunk_index: Mapped[int] = mapped_column(Integer)
+    # FTS (BM25) araması için generated column: content her yazıldığında DB
+    # tarafında to_tsvector('simple', content) ile otomatik güncellenir.
+    tsv_content: Mapped[str | None] = mapped_column(
+        TSVECTOR,
+        Computed("to_tsvector('simple'::regconfig, content)", persisted=True),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     document: Mapped["Document"] = relationship("Document", back_populates="chunks")
