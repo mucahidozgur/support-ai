@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+
+# Env & secrets
+.env
+.env.local
+
+# Claude Code local planlar
+.claude/
+
+# Test/coverage
+.coverage
+htmlcov/
+coverage.xml
+
+# Veritabanı dosyaları (yerel sqlite varsa)
+*.db
+*.sqlite
+*.sqlite3
+
+# HuggingFace cache (yerel)
+hf_cache/
+.cache/
+
+# Log dosyaları
+*.log
+logs/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Misc
+.DS_Store

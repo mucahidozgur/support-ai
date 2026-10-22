@@ -1,0 +1,51 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: support-postgres
+    environment:
+      POSTGRES_USER: support
+      POSTGRES_PASSWORD: support
+      POSTGRES_DB: support
+    ports:
+      - "5434:5432"
+    volumes:
+      - support_pgdata:/var/lib/postgresql/data
+      - ./scripts/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U support"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: ./backend
+    container_name: support-api
+    ports:
+      - "8002:8000"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://support:support@postgres:5432/support
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - hf_cache:/root/.cache/huggingface
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8002
+    container_name: support-web
+    ports:
+      - "3002:3000"
+    depends_on:
+      - api
+    environment:
+      NODE_ENV: production
+
+volumes:
+  support_pgdata:
+  hf_cache:

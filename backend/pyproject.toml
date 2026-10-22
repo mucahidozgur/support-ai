@@ -1,0 +1,53 @@
+[project]
+name = "support-backend"
+version = "0.1.0"
+description = "Support AI Assistant — FastAPI backend"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "sqlalchemy[asyncio]",
+    "asyncpg",
+    "alembic",
+    "pydantic",
+    "pydantic-settings",
+    "python-multipart",
+    "sse-starlette",
+    "langgraph",
+    "langchain",
+    "langchain-openai",
+    "langchain-community",
+    "pgvector",
+    "sentence-transformers",
+    "python-jose[cryptography]",
+    "passlib[bcrypt]",
+    "httpx",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "pytest-timeout",
+    "ruff",
+    "black",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.pytest.ini_options]
+asyncio_default_fixture_loop_scope = "function"
+asyncio_mode = "auto"
