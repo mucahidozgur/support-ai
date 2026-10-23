@@ -6,7 +6,7 @@ from collections.abc import AsyncIterator
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
@@ -41,12 +41,21 @@ async def search_hybrid(
 ) -> SearchResponse:
     """Vektör + BM25 aramalarını RRF ile birleştirip en alakalı chunk'ları döndürür.
 
-    use_rerank=True ise (varsayılan) adaylar cross-encoder rerank'ten geçirilir.
+    use_rerank=True ise (varsayılan) adaylar cross-encoder rerank'ten geçirilir;
+    expand_context=True ise en iyi chunk'ın başlığındaki diğer chunk'lar da eklenir.
     """
+    if body.expand_context and not body.use_rerank:
+        raise HTTPException(
+            status_code=400, detail="expand_context yalnızca use_rerank=True ile kullanılabilir"
+        )
     service = RAGService(db, UUID(current_user.id))
     if body.use_rerank:
         results = await service.search_hybrid_rerank(
-            body.query, body.limit, body.alpha, body.rerank_candidates
+            body.query,
+            body.limit,
+            body.alpha,
+            body.rerank_candidates,
+            expand_context=body.expand_context,
         )
     else:
         results = await service.search_hybrid(body.query, body.limit, body.alpha)

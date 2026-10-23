@@ -44,6 +44,9 @@ class Chunk(Base):
     content: Mapped[str] = mapped_column(Text)
     embedding: Mapped[list[float]] = mapped_column(Vector(get_settings().EMBEDDING_DIM))
     chunk_index: Mapped[int] = mapped_column(Integer)
+    # Hiyerarşik chunking: chunk'ın ait olduğu başlık zinciri ("Ana > Alt").
+    # Eski (Faz 0-2) chunk'lar için None kalabilir.
+    heading: Mapped[str | None] = mapped_column(String(500), nullable=True)
     # FTS (BM25) araması için generated column: content her yazıldığında DB
     # tarafında to_tsvector('simple', content) ile otomatik güncellenir.
     tsv_content: Mapped[str | None] = mapped_column(

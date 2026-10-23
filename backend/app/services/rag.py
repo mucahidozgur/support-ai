@@ -91,6 +91,7 @@ class RAGService:
                 "content": chunk.content,
                 "similarity": float(sim),
                 "chunk_index": chunk.chunk_index,
+                "heading": chunk.heading,
             }
             for chunk, title, sim in rows
         ]
@@ -124,6 +125,7 @@ class RAGService:
                 "content": chunk.content,
                 "similarity": float(rank_val),
                 "chunk_index": chunk.chunk_index,
+                "heading": chunk.heading,
             }
             for chunk, title, rank_val in rows
         ]
@@ -170,15 +172,33 @@ class RAGService:
         return ranked[:top_k]
 
     async def search_hybrid_rerank(
-        self, query: str, limit: int = 3, alpha: float = 0.5, rerank_candidates: int = 20
+        self,
+        query: str,
+        limit: int = 3,
+        alpha: float = 0.5,
+        rerank_candidates: int = 20,
+        expand_context: bool = False,
     ) -> list[dict]:
         """Hybrid arama → cross-encoder rerank: en iyi limit chunk'ı döndürür.
 
         Akış: search_hybrid(limit=rerank_candidates) aday havuzunu kurar,
         rerank(top_k=limit) bunlardan en isabetli olanları seçer.
+
+        expand_context=True ise (parent retrieval): en iyi chunk'ın heading'i
+        alınır ve aynı başlıktaki diğer chunk'lar sonuca eklenir (rerank'te
+        zaten olanlar çıkarılır; eklenenler expanded=True işaretlenir).
         """
         candidates = await self.search_hybrid(query, limit=rerank_candidates, alpha=alpha)
-        return await self.rerank(query, candidates, top_k=limit)
+        results = await self.rerank(query, candidates, top_k=limit)
+        if expand_context and results:
+            top_heading = results[0].get("heading")
+            extra = await self.get_chunks_by_heading(top_heading, limit=5)
+            seen = {r["chunk_id"] for r in results}
+            results = [
+                *results,
+                *[{**chunk, "expanded": True} for chunk in extra if chunk["chunk_id"] not in seen],
+            ]
+        return results
 
     async def get_all_chunks(self, document_id: UUID) -> list[dict]:
         """Belirtilen dokümanın TÜM chunk'larını döner (chunk_index sıralı).
@@ -202,6 +222,37 @@ class RAGService:
                 "content": chunk.content,
                 "similarity": 1.0,
                 "chunk_index": chunk.chunk_index,
+                "heading": chunk.heading,
+            }
+            for chunk, title in rows
+        ]
+
+    async def get_chunks_by_heading(self, heading: str | None, limit: int = 5) -> list[dict]:
+        """Aynı başlığa (parent) ait chunk'ları chunk_index sırasıyla döndürür.
+
+        Parent retrieval: rerank'in seçtiği en iyi chunk'ın bölümündeki diğer
+        chunk'ları bağlama eklemek için kullanılır. Boş heading için [] döner.
+        """
+        if not heading:
+            return []
+        stmt = (
+            select(Chunk, Document.title)
+            .join(Document, Document.id == Chunk.document_id)
+            .where(Document.owner_id == self.owner_id)
+            .where(Chunk.heading == heading)
+            .order_by(Chunk.chunk_index)
+            .limit(limit)
+        )
+        rows = (await self.db.execute(stmt)).all()
+        return [
+            {
+                "chunk_id": chunk.id,
+                "document_id": chunk.document_id,
+                "document_title": title,
+                "content": chunk.content,
+                "similarity": 0.0,  # skorlanmadı; yalnızca bağlam genişletmesi
+                "chunk_index": chunk.chunk_index,
+                "heading": chunk.heading,
             }
             for chunk, title in rows
         ]

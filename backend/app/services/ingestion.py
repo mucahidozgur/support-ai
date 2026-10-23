@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.llm import get_embeddings
 from app.models.document import Chunk, Document
-from app.services.chunking import chunk_text
+from app.services.chunking import chunk_text_hierarchical
 
 
 class DocumentIngestionService:
@@ -27,18 +27,19 @@ class DocumentIngestionService:
         result = await self.db.execute(delete(Chunk).where(Chunk.document_id == document_id))
         chunks_deleted = result.rowcount or 0
 
-        chunks = chunk_text(doc.content)
+        chunks = chunk_text_hierarchical(doc.content)
         if chunks:
-            embeddings = self.embeddings.embed_documents(chunks)
+            embeddings = self.embeddings.embed_documents([c["content"] for c in chunks])
             self.db.add_all(
                 [
                     Chunk(
                         document_id=document_id,
-                        content=content,
+                        content=chunk["content"],
                         embedding=embedding,
-                        chunk_index=idx,
+                        chunk_index=chunk["chunk_index"],
+                        heading=chunk["heading"],
                     )
-                    for idx, (content, embedding) in enumerate(zip(chunks, embeddings, strict=True))
+                    for chunk, embedding in zip(chunks, embeddings, strict=True)
                 ]
             )
 

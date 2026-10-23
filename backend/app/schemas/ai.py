@@ -31,6 +31,8 @@ class HybridSearchRequest(BaseModel):
     # True ise hybrid adaylar cross-encoder rerank'ten geçer (varsayılan).
     use_rerank: bool = True
     rerank_candidates: int = Field(default=20, ge=1, le=50, description="Rerank öncesi aday sayısı")
+    # Parent retrieval: en iyi chunk'ın başlığındaki diğer chunk'lar da döner.
+    expand_context: bool = False
 
 
 class SearchResultItem(BaseModel):
@@ -45,6 +47,10 @@ class SearchResultItem(BaseModel):
     retrieval_source: Literal["vector", "bm25", "both"] | None = None
     # Cross-encoder rerank skoru; yalnızca use_rerank=True iken dolu.
     rerank_score: float | None = None
+    # Hiyerarşik chunking: chunk'ın başlık zinciri ("Ana > Alt"); eski chunk'larda None.
+    heading: str | None = None
+    # Parent retrieval ile eklenen bağlam chunk'ı işareti (skorlanmamış).
+    expanded: bool | None = None
 
 
 class SearchResponse(BaseModel):
