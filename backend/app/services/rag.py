@@ -5,7 +5,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.llm import get_embeddings
+from app.core.llm import get_embeddings, get_reranker
 from app.models.document import Chunk, Document
 
 # Bu eşiğin altındaki benzerlikler ilgisiz kabul edilir. Faz 3a'da gerçek modelle
@@ -144,6 +144,41 @@ class RAGService:
             bm25_weight=1.0 - alpha,
         )
         return fused[:limit]
+
+    async def rerank(self, query: str, candidates: list[dict], top_k: int = 3) -> list[dict]:
+        """Cross-encoder ile adayları (query, content) çiftlerine bakarak yeniden sıralar.
+
+        Her adayda "content" alanı zorunludur (yoksa ValueError). Çıktı rerank
+        skoruna göre azalan sıralıdır; her elemana "rerank_score" eklenir ve
+        "similarity" alanı rerank skoruyla güncellenir (sıralama ile tutarlı
+        kalsın diye). İlk top_k eleman döner. Boş liste hatasız [] döner.
+        """
+        if not candidates:
+            return []
+        if any("content" not in c for c in candidates):
+            raise ValueError("rerank adaylarında 'content' alanı zorunlu")
+
+        reranker = get_reranker()
+        pairs = [(query, c["content"]) for c in candidates]
+        scores = [float(s) for s in reranker.predict(pairs)]
+
+        ranked = [
+            {**candidate, "similarity": score, "rerank_score": score}
+            for candidate, score in zip(candidates, scores, strict=True)
+        ]
+        ranked.sort(key=lambda r: (r["rerank_score"], str(r["chunk_id"])), reverse=True)
+        return ranked[:top_k]
+
+    async def search_hybrid_rerank(
+        self, query: str, limit: int = 3, alpha: float = 0.5, rerank_candidates: int = 20
+    ) -> list[dict]:
+        """Hybrid arama → cross-encoder rerank: en iyi limit chunk'ı döndürür.
+
+        Akış: search_hybrid(limit=rerank_candidates) aday havuzunu kurar,
+        rerank(top_k=limit) bunlardan en isabetli olanları seçer.
+        """
+        candidates = await self.search_hybrid(query, limit=rerank_candidates, alpha=alpha)
+        return await self.rerank(query, candidates, top_k=limit)
 
     async def get_all_chunks(self, document_id: UUID) -> list[dict]:
         """Belirtilen dokümanın TÜM chunk'larını döner (chunk_index sıralı).

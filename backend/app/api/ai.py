@@ -39,10 +39,17 @@ async def search(body: SearchRequest, db: DbDep, current_user: UserDep) -> Searc
 async def search_hybrid(
     body: HybridSearchRequest, db: DbDep, current_user: UserDep
 ) -> SearchResponse:
-    """Vektör + BM25 aramalarını RRF ile birleştirip en alakalı chunk'ları döndürür."""
-    results = await RAGService(db, UUID(current_user.id)).search_hybrid(
-        body.query, body.limit, body.alpha
-    )
+    """Vektör + BM25 aramalarını RRF ile birleştirip en alakalı chunk'ları döndürür.
+
+    use_rerank=True ise (varsayılan) adaylar cross-encoder rerank'ten geçirilir.
+    """
+    service = RAGService(db, UUID(current_user.id))
+    if body.use_rerank:
+        results = await service.search_hybrid_rerank(
+            body.query, body.limit, body.alpha, body.rerank_candidates
+        )
+    else:
+        results = await service.search_hybrid(body.query, body.limit, body.alpha)
     return SearchResponse(query=body.query, results=results)
 
 

@@ -28,6 +28,9 @@ class HybridSearchRequest(BaseModel):
     query: str = Field(min_length=1, max_length=2000)
     limit: int = Field(default=5, ge=1, le=20)
     alpha: float = Field(default=0.5, ge=0.0, le=1.0, description="0=BM25, 1=vektör")
+    # True ise hybrid adaylar cross-encoder rerank'ten geçer (varsayılan).
+    use_rerank: bool = True
+    rerank_candidates: int = Field(default=20, ge=1, le=50, description="Rerank öncesi aday sayısı")
 
 
 class SearchResultItem(BaseModel):
@@ -40,6 +43,8 @@ class SearchResultItem(BaseModel):
     chunk_index: int
     # Hybrid aramada dolu: chunk'ın hangi kaynaktan geldiği; /search'te None.
     retrieval_source: Literal["vector", "bm25", "both"] | None = None
+    # Cross-encoder rerank skoru; yalnızca use_rerank=True iken dolu.
+    rerank_score: float | None = None
 
 
 class SearchResponse(BaseModel):

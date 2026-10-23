@@ -81,7 +81,9 @@ def test_search_bm25_finds_keyword_chunk(
     tech_doc = _create_and_index(app_client, auth_headers, "FTS Guide", TECH_TEXT)
     _create_and_index(app_client, auth_headers, "Mantı Tarifi", FOOD_TEXT)
     resp = app_client.post(
-        HYBRID_URL, json={"query": "tsvector", "alpha": 0.0}, headers=auth_headers
+        HYBRID_URL,
+        json={"query": "tsvector", "alpha": 0.0, "use_rerank": False},
+        headers=auth_headers,
     )
     assert resp.status_code == 200
     results = resp.json()["results"]
@@ -99,7 +101,9 @@ def test_search_hybrid_combines_sources(
     tech_doc = _create_and_index(app_client, auth_headers, "FTS Guide", TECH_TEXT)
     _create_and_index(app_client, auth_headers, "Mantı Tarifi", FOOD_TEXT)
     resp = app_client.post(
-        HYBRID_URL, json={"query": "postgresql", "limit": 5, "alpha": 0.5}, headers=auth_headers
+        HYBRID_URL,
+        json={"query": "postgresql", "limit": 5, "alpha": 0.5, "use_rerank": False},
+        headers=auth_headers,
     )
     assert resp.status_code == 200
     results = resp.json()["results"]
@@ -108,6 +112,7 @@ def test_search_hybrid_combines_sources(
     assert results[0]["retrieval_source"] == "both"
     assert results[0]["document_id"] == tech_doc["id"]
     assert all(r["retrieval_source"] in {"vector", "bm25", "both"} for r in results)
+    assert all(r["rerank_score"] is None for r in results)  # rerank kapalı
     scores = [r["similarity"] for r in results]
     assert scores == sorted(scores, reverse=True)  # RRF skoruna göre azalan
 
@@ -119,7 +124,9 @@ def test_search_hybrid_alpha_one_uses_only_vector(
     tech_doc = _create_and_index(app_client, auth_headers, "FTS Guide", TECH_TEXT)
     _create_and_index(app_client, auth_headers, "Mantı Tarifi", FOOD_TEXT)
     resp = app_client.post(
-        HYBRID_URL, json={"query": "postgresql", "alpha": 1.0}, headers=auth_headers
+        HYBRID_URL,
+        json={"query": "postgresql", "alpha": 1.0, "use_rerank": False},
+        headers=auth_headers,
     )
     assert resp.status_code == 200
     results = resp.json()["results"]
@@ -132,7 +139,9 @@ def test_search_hybrid_limits_results(app_client: TestClient, auth_headers: dict
     """limit parametresi dönen sonuç sayısını sınırlar."""
     _create_and_index(app_client, auth_headers, "FTS Guide", TECH_TEXT)
     resp = app_client.post(
-        HYBRID_URL, json={"query": "tsvector", "limit": 1, "alpha": 0.0}, headers=auth_headers
+        HYBRID_URL,
+        json={"query": "tsvector", "limit": 1, "alpha": 0.0, "use_rerank": False},
+        headers=auth_headers,
     )
     assert resp.status_code == 200
     assert len(resp.json()["results"]) == 1

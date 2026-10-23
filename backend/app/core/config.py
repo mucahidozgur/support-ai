@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     LLM_MODEL: str = "qwen/qwen3.8-27b"
     EMBEDDING_MODEL: str = "BAAI/bge-small-en-v1.5"
     EMBEDDING_DIM: int = 384
+    RERANKER_MODEL: str = "BAAI/bge-reranker-v2-m3"
     JWT_SECRET: str = "changeme"
     JWT_ALG: str = "HS256"
     JWT_EXPIRE_MIN: int = 60
