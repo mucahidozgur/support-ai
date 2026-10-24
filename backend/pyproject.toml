@@ -16,12 +16,19 @@ dependencies = [
     "langgraph",
     "langchain",
     "langchain-openai",
-    "langchain-community",
+    # chunking.py RecursiveCharacterTextSplitter kullanıyor; langchain 1.x'te
+    # ayrı paket (langchain bağımlılığı olarak artık gelmiyor).
+    "langchain-text-splitters",
+    # Pin: 0.4.x, ragas 0.4.3'ün import ettiği vertexai modüllerini kaldırdı
+    # (ragas 0.4.3 hâlâ eski modül yolunu kullanıyor; 0.3.31 uyumlu).
+    "langchain-community==0.3.31",
     "pgvector",
     "sentence-transformers",
     "python-jose[cryptography]",
     "passlib[bcrypt]",
     "httpx",
+    # Faz 4: RAGAS metrikleri (faithfulness, answer_relevancy, context_precision)
+    "ragas",
 ]
 
 [project.optional-dependencies]

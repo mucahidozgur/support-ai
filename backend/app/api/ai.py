@@ -12,10 +12,21 @@ from sse_starlette.sse import EventSourceResponse
 
 from app.api.deps import get_current_user
 from app.core.db import get_db
-from app.schemas.ai import ChatRequest, HybridSearchRequest, SearchRequest, SearchResponse
+from app.schemas.ai import (
+    ChatRequest,
+    EvaluationMetrics,
+    EvaluationRunRequest,
+    EvaluationRunResponse,
+    GenerateTestSetRequest,
+    GenerateTestSetResponse,
+    HybridSearchRequest,
+    SearchRequest,
+    SearchResponse,
+)
 from app.schemas.auth import UserInfo
 from app.services.agent import AgentService
 from app.services.chat import ChatService
+from app.services.evaluation import EvaluationError, evaluate_rag, generate_test_set
 from app.services.rag import RAGService
 
 logger = logging.getLogger(__name__)
@@ -117,3 +128,36 @@ async def agent(body: ChatRequest, db: DbDep, current_user: UserDep) -> EventSou
             await db.close()
 
     return EventSourceResponse(event_generator(), ping=15)
+
+
+@router.post("/evaluate/generate-set", response_model=GenerateTestSetResponse)
+async def evaluate_generate_set(
+    body: GenerateTestSetRequest, db: DbDep, current_user: UserDep
+) -> GenerateTestSetResponse:
+    """Dokümandan LLM ile sentetik soru-cevap (test seti) üretir."""
+    try:
+        questions = await generate_test_set(
+            db, UUID(current_user.id), body.document_id, body.num_questions
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except EvaluationError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    if questions is None:
+        raise HTTPException(status_code=404, detail="Doküman bulunamadı")
+    return GenerateTestSetResponse(document_id=body.document_id, questions=questions)
+
+
+@router.post("/evaluate/run", response_model=EvaluationRunResponse)
+async def evaluate_run(
+    body: EvaluationRunRequest, db: DbDep, current_user: UserDep
+) -> EvaluationRunResponse:
+    """Test setini RAGAS metrikleriyle değerlendirir."""
+    test_set = [item.model_dump() for item in body.test_set]
+    try:
+        metrics = await evaluate_rag(test_set, RAGService(db, UUID(current_user.id)))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except EvaluationError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return EvaluationRunResponse(metrics=EvaluationMetrics(**metrics), samples=len(test_set))

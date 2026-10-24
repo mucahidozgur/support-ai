@@ -47,22 +47,23 @@ For now: base is docuflow-ai fork. Ports below.
 (docuflow 3000/8000/5432, mizan 3001/8001/5433 — no conflicts)
 
 ## Current state
-**Faz 0-3 done:** Forked from docuflow-ai, rebranded to Support AI, ports 5434/8002/3002,
+**Faz 0-4 done:** Forked from docuflow-ai, rebranded to Support AI, ports 5434/8002/3002,
 own DB (support/support_test) + Docker Compose stack running. Hybrid search live:
 `POST /api/ai/search/hybrid` (vector + BM25/FTS + RRF, alpha ağırlıklı) + cross-encoder
 rerank (bge-reranker-v2-m3, lazy singleton, use_rerank default True) + hiyerarşik
 chunking (Markdown başlıkları → heading kolonu) + parent retrieval (expand_context).
+RAGAS değerlendirmesi: `POST /api/ai/evaluate/generate-set` + `/api/ai/evaluate/run`
+(faithfulness, answer_relevancy, context_precision) + CLI `scripts/run_evaluation.py`.
+Not: langchain-community 0.3.31'e pin'li (0.4.x ragas 0.4.3 ile uyumsuz).
 Host dev venv: `backend/.venv` (Python 3.13; Docker image uses 3.11).
-Not: api Docker imajı rebuild'i ertelendi (ağ timeout + bellek); dev ortamı bind
-mount + --reload ile yeni kodu zaten çalıştırıyor. Rebuild: `docker compose build api`.
-Next: Faz 4 (RAGAS evaluation + synthetic test set).
+Next: Faz 5 (citation verification + hallucination detector).
 
 ## Roadmap
 - [x] Faz 0: Fork base + port + branding
 - [x] Faz 1: Hybrid search (BM25 + vector + RRF)
 - [x] Faz 2: Cross-encoder reranking
 - [x] Faz 3: Semantic + hierarchical chunking
-- [ ] Faz 4: RAGAS evaluation + synthetic test set
+- [x] Faz 4: RAGAS evaluation + synthetic test set
 - [ ] Faz 5: Citation verification + hallucination detector
 - [ ] Faz 6: Langfuse observability
 - [ ] Faz 7: Self-critique / corrective RAG agent
@@ -78,7 +79,7 @@ Next: Faz 4 (RAGAS evaluation + synthetic test set).
 - No new dependency without justification in the commit message
 
 ## Testing
-- `cd backend && pytest -v` — currently 66 tests passing
+- `cd backend && pytest -v` — currently 77 tests passing
 - After each phase: must remain ≥47 passing + add new tests
 - DB isolation: tests use `support_test` DB, never touch `support` DB
 

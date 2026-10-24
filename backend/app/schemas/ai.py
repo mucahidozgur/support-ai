@@ -95,3 +95,45 @@ class ChatErrorEvent(BaseModel):
     """SSE "error" event'i."""
 
     message: str
+
+
+class TestSetItem(BaseModel):
+    """Sentetik test seti elemanı: soru + doğru cevap."""
+
+    question: str = Field(min_length=1, max_length=2000)
+    ground_truth: str = Field(default="", max_length=8000)
+
+
+class GenerateTestSetRequest(BaseModel):
+    """Sentetik test seti üretme isteği."""
+
+    document_id: UUID
+    num_questions: int = Field(default=5, ge=1, le=10)
+
+
+class GenerateTestSetResponse(BaseModel):
+    """Sentetik test seti yanıtı."""
+
+    document_id: UUID
+    questions: list[TestSetItem]
+
+
+class EvaluationRunRequest(BaseModel):
+    """RAGAS değerlendirme isteği."""
+
+    test_set: list[TestSetItem] = Field(min_length=1)
+
+
+class EvaluationMetrics(BaseModel):
+    """RAGAS metrikleri (müşteri hedefleri: F≥0.85, CP≥0.75, AR≥0.80)."""
+
+    faithfulness: float
+    answer_relevancy: float
+    context_precision: float
+
+
+class EvaluationRunResponse(BaseModel):
+    """RAGAS değerlendirme yanıtı."""
+
+    metrics: EvaluationMetrics
+    samples: int
