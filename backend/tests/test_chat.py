@@ -6,6 +6,8 @@ import pytest
 from fastapi.testclient import TestClient
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
 
+from app.services.chat import INSUFFICIENT_CONTEXT_ANSWER
+
 DOCS_URL = "/api/documents"
 CHAT_URL = "/api/ai/chat"
 
@@ -94,32 +96,72 @@ def _collect_events(
 
 
 def test_chat_no_documents(
-    app_client: TestClient, auth_headers: dict[str, str], fake_llm: FakeListChatModel
+    app_client: TestClient, auth_headers: dict[str, str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Hiç doküman yokken error + done(no_context) gelir; sources/token gelmez."""
+    """Hiç doküman yokken LLM çağrılmaz; sabit "bilgi yok" cevabı stream edilir.
+
+    sources=[] + token(sabit cevap) + done(insufficient_context=true) gelir.
+    """
+    fake = FakeListChatModel(responses=["BU CEVAP ASLA GÖRÜNMEMELİ"])
+    monkeypatch.setattr("app.services.chat.get_llm", lambda: fake)
     events = _collect_events(app_client, {"query": "Python nedir?"}, auth_headers)
     names = [name for name, _ in events]
-    assert "error" in names
-    assert "done" in names
-    assert "sources" not in names
-    assert "token" not in names
-    error_data = events[names.index("error")][1]
-    assert error_data["message"] == "Bu soruya cevap verebilecek bir doküman bulunamadı."
-    assert events[names.index("done")][1]["finish_reason"] == "no_context"
+    assert "sources" in names
+    assert events[names.index("sources")][1] == []
+    assert "error" not in names
+    tokens = "".join(data["text"] for name, data in events if name == "token")
+    assert tokens == INSUFFICIENT_CONTEXT_ANSWER
+    done = events[names.index("done")][1]
+    assert done["finish_reason"] == "insufficient_context"
+    assert done["insufficient_context"] is True
     assert names[-1] == "done"
+
+
+def test_chat_insufficient_context_low_score(
+    app_client: TestClient, auth_headers: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Retrieval eşiğin altında skor döndürürse LLM çağrılmaz, sabit cevap döner."""
+
+    async def fake_retrieval(self, query, limit=3, **kwargs):
+        return [
+            {
+                "chunk_id": "c1",
+                "document_id": "d1",
+                "content": "zayıf eşleşme",
+                "similarity": 0.2,
+                "chunk_index": 0,
+            }
+        ]
+
+    monkeypatch.setattr("app.services.rag.RAGService.search_hybrid_rerank", fake_retrieval)
+    fake = FakeListChatModel(responses=["BU CEVAP ASLA GÖRÜNMEMELİ"])
+    monkeypatch.setattr("app.services.chat.get_llm", lambda: fake)
+
+    events = _collect_events(app_client, {"query": "alakasız soru"}, auth_headers)
+    names = [name for name, _ in events]
+    assert "error" not in names
+    tokens = "".join(data["text"] for name, data in events if name == "token")
+    assert tokens == INSUFFICIENT_CONTEXT_ANSWER
+    assert events[names.index("done")][1]["insufficient_context"] is True
 
 
 def test_chat_with_relevant_document(
     app_client: TestClient, auth_headers: dict[str, str], fake_llm: FakeListChatModel
 ) -> None:
-    """İlgili doküman varken sources → token → done sırasıyla stream edilir."""
+    """İlgili doküman varken sources → token → verification → done sırasıyla gelir."""
     doc = _create_and_index(app_client, auth_headers, "Python Programlama", PYTHON_TEXT)
     events = _collect_events(app_client, {"query": "Python nedir?"}, auth_headers)
     names = [name for name, _ in events]
     assert "sources" in names
     assert "token" in names
+    assert "verification" in names
     assert "done" in names
-    assert names.index("sources") < names.index("token") < names.index("done")
+    assert (
+        names.index("sources")
+        < names.index("token")
+        < names.index("verification")
+        < names.index("done")
+    )
 
     sources = events[names.index("sources")][1]
     assert isinstance(sources, list)
@@ -131,6 +173,51 @@ def test_chat_with_relevant_document(
 
     tokens = "".join(data["text"] for name, data in events if name == "token")
     assert tokens == MOCK_RESPONSE
+    assert events[names.index("done")][1]["finish_reason"] == "stop"
+
+
+def test_chat_verification_event_payload(
+    app_client: TestClient,
+    auth_headers: dict[str, str],
+    fake_llm: FakeListChatModel,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """verification event'i verified/unsupported/faithfulness alanlarını taşır."""
+    _create_and_index(app_client, auth_headers, "Python Programlama", PYTHON_TEXT)
+    monkeypatch.setattr(
+        "app.services.chat.verify_citations",
+        lambda answer, sources: {"verified": True, "unsupported_sentences": []},
+    )
+    monkeypatch.setattr(
+        "app.services.chat.detect_hallucination",
+        lambda answer, sources: {"faithfulness": 0.95, "is_hallucination": False},
+    )
+
+    events = _collect_events(app_client, {"query": "Python nedir?"}, auth_headers)
+    names = [name for name, _ in events]
+    assert "verification" in names
+    data = events[names.index("verification")][1]
+    assert data == {"verified": True, "unsupported": [], "faithfulness": 0.95}
+
+
+def test_chat_verify_false_skips_verification(
+    app_client: TestClient,
+    auth_headers: dict[str, str],
+    fake_llm: FakeListChatModel,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """verify=False iken verification event'i gönderilmez."""
+    _create_and_index(app_client, auth_headers, "Python Programlama", PYTHON_TEXT)
+
+    def boom(answer, sources):
+        raise AssertionError("doğrulama çağrılmamalı")
+
+    monkeypatch.setattr("app.services.chat.verify_citations", boom)
+    monkeypatch.setattr("app.services.chat.detect_hallucination", boom)
+
+    events = _collect_events(app_client, {"query": "Python nedir?", "verify": False}, auth_headers)
+    names = [name for name, _ in events]
+    assert "verification" not in names
     assert events[names.index("done")][1]["finish_reason"] == "stop"
 
 
@@ -156,7 +243,11 @@ def test_chat_llm_init_failure_returns_error_event(
     auth_headers: dict[str, str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """LLM kurulumu patlarsa 500 değil, SSE error + done(error) event'i döner."""
+    """LLM kurulumu patlarsa 500 değil, SSE error + done(error) event'i döner.
+
+    LLM lazy kurulduğu için akışın LLM'e ulaşması adına ilgili doküman gerekir.
+    """
+    _create_and_index(app_client, auth_headers, "Python Programlama", PYTHON_TEXT)
 
     def boom() -> None:
         raise RuntimeError("simulated LLM init failure")

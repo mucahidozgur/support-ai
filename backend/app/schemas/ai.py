@@ -66,6 +66,9 @@ class ChatRequest(BaseModel):
     query: str = Field(min_length=1, max_length=2000)
     document_ids: list[UUID] | None = None
     top_k: int = Field(default=5, ge=1, le=10)
+    # True (varsayılan) ise cevaptan sonra citation doğrulaması + hallucination
+    # tespiti çalışır ve "verification" SSE event'i gönderilir.
+    verify: bool = True
 
 
 class ChatSource(BaseModel):

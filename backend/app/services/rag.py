@@ -16,6 +16,17 @@ MIN_SIMILARITY = 0.55
 RRF_K = 60
 
 
+def has_sufficient_context(results: list[dict], min_similarity: float = MIN_SIMILARITY) -> bool:
+    """Retrieval sonuçlarının LLM'e gidecek kadar güvenilir olup olmadığını döndürür.
+
+    En yüksek similarity eşiğin altındaysa (veya hiç sonuç yoksa) False döner;
+    chat akışı bu durumda LLM'i çağırmadan "bilgi yok" cevabı verir.
+    """
+    if not results:
+        return False
+    return max(float(r.get("similarity", 0.0)) for r in results) >= min_similarity
+
+
 def rrf_fuse(
     vector_results: list[dict],
     bm25_results: list[dict],

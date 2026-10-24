@@ -81,7 +81,9 @@ async def chat(body: ChatRequest, db: DbDep, current_user: UserDep) -> EventSour
     async def event_generator() -> AsyncIterator[dict[str, str]]:
         try:
             service = ChatService(db, owner_id)
-            async for event in service.stream_chat(body.query, body.document_ids, body.top_k):
+            async for event in service.stream_chat(
+                body.query, body.document_ids, body.top_k, verify=body.verify
+            ):
                 yield {
                     "event": event["event"],
                     "data": json.dumps(event["data"], default=str),

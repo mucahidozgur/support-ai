@@ -42,6 +42,24 @@ from app.core.db import Base
 from app.main import app
 
 
+@pytest.fixture(autouse=True)
+def _stub_reranker(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Gerçek cross-encoder'ın testlerde yüklenmesini engeller (ağır model).
+
+    Faz 5'ten itibaren chat akışı hybrid+rerank kullandığı için tüm testler
+    bu stub ile güvende. Kendi sahte reranker'ına ihtiyaç duyan testler
+    monkeypatch ile bu stub'ı override edebilir.
+    """
+
+    class _StubReranker:
+        """Azalan skorlar döner; sıralama deterministiktir."""
+
+        def predict(self, pairs: list[tuple[str, str]]) -> list[float]:
+            return [1.0 - 0.001 * i for i in range(len(pairs))]
+
+    monkeypatch.setattr("app.services.rag.get_reranker", lambda: _StubReranker())
+
+
 @pytest.fixture(scope="session")
 def app_client() -> TestClient:
     """Lifespan dahil uygulama test client'ı (test DB'sine bağlanır)."""
