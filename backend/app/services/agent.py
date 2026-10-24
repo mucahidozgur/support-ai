@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.graph import AGENT_GRAPH
 from app.core.llm import get_llm
+from app.core.observability import callback_config
 from app.services.prompts import SYSTEM_PROMPT, build_context_block, build_user_prompt
 
 logger = logging.getLogger(__name__)
@@ -41,7 +42,10 @@ class AgentService:
                 "document_ids": document_ids,
                 "top_k": top_k,
             }
-            result = await AGENT_GRAPH.ainvoke(state, config={"configurable": {"db": self.db}})
+            result = await AGENT_GRAPH.ainvoke(
+                state,
+                config={"configurable": {"db": self.db}, **callback_config()},
+            )
 
             # 1) intent event'i
             yield {"event": "intent", "data": {"intent": result["intent"]}}
@@ -69,7 +73,8 @@ class AgentService:
 
             # 5) LLM streaming (tek nokta)
             async for chunk in self.llm.astream(
-                [SystemMessage(content=system_prompt), HumanMessage(content=user_prompt)]
+                [SystemMessage(content=system_prompt), HumanMessage(content=user_prompt)],
+                config=callback_config(),
             ):
                 if chunk.content:
                     yield {"event": "token", "data": {"text": chunk.content}}

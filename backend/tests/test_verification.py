@@ -20,7 +20,7 @@ class _FakeLLM:
         self.response = response
         self.calls: list = []
 
-    def invoke(self, messages) -> SimpleNamespace:
+    def invoke(self, messages, config=None, **kwargs) -> SimpleNamespace:
         self.calls.append(messages)
         return SimpleNamespace(content=self.response)
 

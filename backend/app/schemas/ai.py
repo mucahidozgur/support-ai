@@ -140,3 +140,17 @@ class EvaluationRunResponse(BaseModel):
 
     metrics: EvaluationMetrics
     samples: int
+
+
+class FeedbackRequest(BaseModel):
+    """Kullanıcı geri bildirimi (1 = thumbs up, 0 = thumbs down)."""
+
+    trace_id: str = Field(min_length=1, max_length=128)
+    score: int = Field(ge=0, le=1)
+    comment: str | None = Field(default=None, max_length=2000)
+
+
+class FeedbackResponse(BaseModel):
+    """Geri bildirim yanıtı."""
+
+    status: str

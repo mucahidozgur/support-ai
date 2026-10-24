@@ -29,6 +29,8 @@ dependencies = [
     "httpx",
     # Faz 4: RAGAS metrikleri (faithfulness, answer_relevancy, context_precision)
     "ragas",
+    # Faz 6: Langfuse observability (trace + feedback; anahtarsız no-op)
+    "langfuse",
 ]
 
 [project.optional-dependencies]

@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.llm import get_llm
+from app.core.observability import callback_config
 from app.models.document import Document
 from app.services.prompts import SYSTEM_PROMPT, build_context_block, build_user_prompt
 from app.services.rag import RAGService
@@ -60,7 +61,9 @@ async def generate_test_set(
         f"DOKÜMAN:\n{doc.content}"
     )
     try:
-        response = get_llm().invoke([SystemMessage(TEST_SET_SYSTEM), HumanMessage(prompt)])
+        response = get_llm().invoke(
+            [SystemMessage(TEST_SET_SYSTEM), HumanMessage(prompt)], config=callback_config()
+        )
     except Exception as exc:
         logger.exception("Test seti üretimi LLM hatası")
         raise EvaluationError(f"LLM test seti üretimi başarısız: {exc}") from exc
@@ -111,7 +114,7 @@ def _generate_answer(llm, question: str, contexts: list[str]) -> str:
         SystemMessage(SYSTEM_PROMPT),
         HumanMessage(build_user_prompt(question, context_block)),
     ]
-    response = llm.invoke(messages)
+    response = llm.invoke(messages, config=callback_config())
     return getattr(response, "content", str(response))
 
 

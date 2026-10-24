@@ -12,6 +12,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.llm import get_llm
+from app.core.observability import callback_config
 from app.schemas.ai import ChatSource
 from app.services.prompts import SYSTEM_PROMPT, build_context_block, build_user_prompt
 from app.services.rag import RAGService, has_sufficient_context
@@ -80,7 +81,7 @@ class ChatService:
                 HumanMessage(build_user_prompt(query, context_block)),
             ]
             answer_parts: list[str] = []
-            async for chunk in self._llm().astream(messages):
+            async for chunk in self._llm().astream(messages, config=callback_config()):
                 if chunk.content:
                     answer_parts.append(chunk.content)
                     yield {"event": "token", "data": {"text": chunk.content}}

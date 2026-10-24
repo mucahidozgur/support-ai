@@ -13,6 +13,7 @@ from typing import Any
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.core.llm import get_llm
+from app.core.observability import callback_config, observe_rag, update_observation_output
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +63,7 @@ def _parse_json_response(raw: str) -> dict[str, Any]:
     return data
 
 
+@observe_rag("verify_citations")
 def verify_citations(answer: str, sources: list[dict]) -> dict:
     """Cevabın her cümlesini kaynaklara karşı doğrular.
 
@@ -81,7 +83,9 @@ def verify_citations(answer: str, sources: list[dict]) -> dict:
         f"KAYNAKLAR:\n{_sources_block(sources)}\n\n"
         "CÜMLELER:\n" + "\n".join(f"{i}: {s}" for i, s in enumerate(sentences))
     )
-    response = get_llm().invoke([SystemMessage(_VERIFY_SYSTEM), HumanMessage(prompt)])
+    response = get_llm().invoke(
+        [SystemMessage(_VERIFY_SYSTEM), HumanMessage(prompt)], config=callback_config()
+    )
     data = _parse_json_response(getattr(response, "content", str(response)))
     results = data.get("results")
     if not isinstance(results, dict):
@@ -98,6 +102,7 @@ def verify_citations(answer: str, sources: list[dict]) -> dict:
             chunk_id = "NONE"
         supported.append({"text": sentence, "supported_by": chunk_id})
 
+    update_observation_output({"verified": not unsupported, "unsupported_count": len(unsupported)})
     return {
         "sentences": supported,
         "verified": not unsupported,
@@ -118,7 +123,9 @@ def detect_hallucination(answer: str, sources: list[dict]) -> dict:
         f"KAYNAKLAR:\n{_sources_block(sources)}\n\n"
         f"CEVAP:\n{answer}"
     )
-    response = get_llm().invoke([SystemMessage(_FAITHFULNESS_SYSTEM), HumanMessage(prompt)])
+    response = get_llm().invoke(
+        [SystemMessage(_FAITHFULNESS_SYSTEM), HumanMessage(prompt)], config=callback_config()
+    )
     data = _parse_json_response(getattr(response, "content", str(response)))
     try:
         score = float(data.get("score"))

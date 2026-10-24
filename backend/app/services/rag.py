@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.llm import get_embeddings, get_reranker
+from app.core.observability import observe_rag, update_observation_input
 from app.models.document import Chunk, Document
 
 # Bu eşiğin altındaki benzerlikler ilgisiz kabul edilir. Faz 3a'da gerçek modelle
@@ -141,12 +142,14 @@ class RAGService:
             for chunk, title, rank_val in rows
         ]
 
+    @observe_rag("search_hybrid")
     async def search_hybrid(self, query: str, limit: int = 5, alpha: float = 0.5) -> list[dict]:
         """Vektör + BM25 sonuçlarını RRF ile birleştirir.
 
         alpha: 0.0 → yalnız BM25, 1.0 → yalnız vektör, 0.5 → eşit ağırlık.
         Her kaynaktan limit * 2 aday toplanır; birleşik listeden ilk limit döner.
         """
+        update_observation_input({"query": query, "limit": limit, "alpha": alpha})
         pool = limit * 2
         vector_results = await self.search(query, limit=pool) if alpha > 0.0 else []
         bm25_results = await self.search_bm25(query, limit=pool) if alpha < 1.0 else []
@@ -158,6 +161,7 @@ class RAGService:
         )
         return fused[:limit]
 
+    @observe_rag("rerank")
     async def rerank(self, query: str, candidates: list[dict], top_k: int = 3) -> list[dict]:
         """Cross-encoder ile adayları (query, content) çiftlerine bakarak yeniden sıralar.
 
@@ -166,6 +170,9 @@ class RAGService:
         "similarity" alanı rerank skoruyla güncellenir (sıralama ile tutarlı
         kalsın diye). İlk top_k eleman döner. Boş liste hatasız [] döner.
         """
+        update_observation_input(
+            {"query": query, "candidates_count": len(candidates), "top_k": top_k}
+        )
         if not candidates:
             return []
         if any("content" not in c for c in candidates):

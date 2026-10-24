@@ -12,11 +12,14 @@ from sse_starlette.sse import EventSourceResponse
 
 from app.api.deps import get_current_user
 from app.core.db import get_db
+from app.core.observability import get_langfuse_client
 from app.schemas.ai import (
     ChatRequest,
     EvaluationMetrics,
     EvaluationRunRequest,
     EvaluationRunResponse,
+    FeedbackRequest,
+    FeedbackResponse,
     GenerateTestSetRequest,
     GenerateTestSetResponse,
     HybridSearchRequest,
@@ -163,3 +166,25 @@ async def evaluate_run(
     except EvaluationError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return EvaluationRunResponse(metrics=EvaluationMetrics(**metrics), samples=len(test_set))
+
+
+@router.post("/feedback", response_model=FeedbackResponse)
+async def feedback(body: FeedbackRequest, current_user: UserDep) -> FeedbackResponse:
+    """Langfuse'a kullanıcı geri bildirimi (thumbs up/down) gönderir.
+
+    Observability devre dışıysa 503; Langfuse hatasında 502 döner — akışı bozmaz.
+    """
+    client = get_langfuse_client()
+    if client is None:
+        raise HTTPException(status_code=503, detail="Observability devre dışı")
+    try:
+        client.create_score(
+            name="user_feedback",
+            value=float(body.score),
+            trace_id=body.trace_id,
+            comment=body.comment,
+        )
+    except Exception as exc:
+        logger.warning("Langfuse feedback gönderilemedi: %s", exc)
+        raise HTTPException(status_code=502, detail="Geri bildirim gönderilemedi") from exc
+    return FeedbackResponse(status="ok")

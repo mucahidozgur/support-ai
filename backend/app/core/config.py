@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     JWT_ALG: str = "HS256"
     JWT_EXPIRE_MIN: int = 60
     CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:3002"]
+    # Langfuse observability — boş anahtarlarda trace'ler devre dışı kalır (uygulama çökmez).
+    LANGFUSE_PUBLIC_KEY: str = ""
+    LANGFUSE_SECRET_KEY: str = ""
+    LANGFUSE_HOST: str = "https://cloud.langfuse.com"
     TEST_DATABASE_URL: str | None = None  # host'tan test DB'si (localhost)
     TEST_DATABASE_URL_DOCKER: str | None = None  # container içinden test DB'si (postgres)
 
