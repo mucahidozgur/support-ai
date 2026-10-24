@@ -100,6 +100,13 @@ class ChatErrorEvent(BaseModel):
     message: str
 
 
+class CorrectiveChatRequest(BaseModel):
+    """Self-critique / corrective RAG isteği."""
+
+    query: str = Field(min_length=1, max_length=2000)
+    max_retries: int = Field(default=2, ge=0, le=3, description="Critique-revision tur sayısı")
+
+
 class TestSetItem(BaseModel):
     """Sentetik test seti elemanı: soru + doğru cevap."""
 

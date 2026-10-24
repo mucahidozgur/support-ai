@@ -15,6 +15,7 @@ from app.core.db import get_db
 from app.core.observability import get_langfuse_client
 from app.schemas.ai import (
     ChatRequest,
+    CorrectiveChatRequest,
     EvaluationMetrics,
     EvaluationRunRequest,
     EvaluationRunResponse,
@@ -28,7 +29,7 @@ from app.schemas.ai import (
 )
 from app.schemas.auth import UserInfo
 from app.services.agent import AgentService
-from app.services.chat import ChatService
+from app.services.chat import ChatService, CorrectiveChatService
 from app.services.evaluation import EvaluationError, evaluate_rag, generate_test_set
 from app.services.rag import RAGService
 
@@ -108,6 +109,33 @@ async def chat(body: ChatRequest, db: DbDep, current_user: UserDep) -> EventSour
             await db.close()
 
     # ping saniye cinsindendir: 15 sn'de bir keepalive (bazı proxy'ler için gerekli)
+    return EventSourceResponse(event_generator(), ping=15)
+
+
+@router.post("/chat/corrective")
+async def chat_corrective(
+    body: CorrectiveChatRequest, db: DbDep, current_user: UserDep
+) -> EventSourceResponse:
+    """Self-critique / corrective RAG: yetersiz context'te sorguyu yeniden yazar,
+    taslak cevabı eleştirir, gerekirse düzeltir ve SSE ile stream eder."""
+    owner_id = UUID(current_user.id)
+
+    async def event_generator() -> AsyncIterator[dict[str, str]]:
+        try:
+            service = CorrectiveChatService(db, owner_id)
+            async for event in service.corrective_rag_stream(body.query, body.max_retries):
+                yield {
+                    "event": event["event"],
+                    "data": json.dumps(event["data"], default=str),
+                }
+        except Exception as exc:
+            logger.exception("Corrective chat stream error")
+            yield {"event": "error", "data": json.dumps({"message": str(exc)})}
+            yield {"event": "done", "data": json.dumps({"finish_reason": "error"})}
+        finally:
+            # /chat ile aynı neden: stream sonunda bağlantıyı pool'a iade et.
+            await db.close()
+
     return EventSourceResponse(event_generator(), ping=15)
 
 

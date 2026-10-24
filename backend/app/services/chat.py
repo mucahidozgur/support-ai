@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.llm import get_llm
 from app.core.observability import callback_config
 from app.schemas.ai import ChatSource
+from app.services.critique import critique_answer, rewrite_query
 from app.services.prompts import SYSTEM_PROMPT, build_context_block, build_user_prompt
 from app.services.rag import RAGService, has_sufficient_context
 from app.services.verification import detect_hallucination, verify_citations
@@ -119,3 +120,94 @@ class ChatService:
                 "event": "verification",
                 "data": {"verified": False, "unsupported": [], "faithfulness": 0.0},
             }
+
+
+class CorrectiveChatService:
+    """Self-critique / corrective RAG akışı.
+
+    Akış: hybrid+rerank arama → yetersizse rewrite_query ile yeniden ara →
+    taslak cevap → critique_answer ile eleştiri → gerekirse düzeltilmiş cevabı
+    kullan (max_retries kadar tekrar) → final cevabı SSE ile stream et.
+    """
+
+    def __init__(self, db: AsyncSession, owner_id: UUID) -> None:
+        self.db = db
+        self.owner_id = owner_id
+        self.rag = RAGService(db, owner_id)
+        self._llm_instance = None  # ChatService ile aynı nedenle lazy
+
+    def _llm(self):
+        if self._llm_instance is None:
+            self._llm_instance = get_llm()
+        return self._llm_instance
+
+    async def corrective_rag_stream(
+        self, query: str, max_retries: int = 2
+    ) -> AsyncIterator[dict[str, object]]:
+        """SSE event'leri üretir: sources, rewrite?, critique?, revision?, token, done."""
+        try:
+            chunks = await self.rag.search_hybrid_rerank(query=query, limit=5)
+
+            # 2) Context yetersizse sorguyu yeniden yaz ve tekrar ara.
+            if not has_sufficient_context(chunks):
+                new_query = rewrite_query(query, chunks)
+                yield {
+                    "event": "rewrite",
+                    "data": {"original_query": query, "new_query": new_query},
+                }
+                chunks = await self.rag.search_hybrid_rerank(query=new_query, limit=5)
+                if not has_sufficient_context(chunks):
+                    yield {"event": "sources", "data": []}
+                    yield {"event": "token", "data": {"text": INSUFFICIENT_CONTEXT_ANSWER}}
+                    yield {
+                        "event": "done",
+                        "data": {
+                            "finish_reason": "insufficient_context",
+                            "insufficient_context": True,
+                        },
+                    }
+                    return
+
+            sources = [ChatSource.model_validate(c).model_dump(mode="json") for c in chunks]
+            yield {"event": "sources", "data": sources}
+
+            # 3) Taslak cevap (critique tam metni görmeli; invoke ile üretilir).
+            context_block = build_context_block(chunks)
+            draft = self._generate_draft(query, context_block)
+
+            # 4) Self-critique: gerekirse düzeltilmiş cevabı kullan.
+            answer = draft
+            rounds = max_retries + 1
+            for _ in range(rounds):
+                result = critique_answer(query, answer, context_block)
+                yield {
+                    "event": "critique",
+                    "data": {
+                        "is_satisfactory": result["is_satisfactory"],
+                        "critique": result["critique"],
+                    },
+                }
+                if result["is_satisfactory"] or result["revised_answer"] == answer:
+                    break
+                answer = result["revised_answer"]
+                yield {
+                    "event": "revision",
+                    "data": {"revised_answer": answer},
+                }
+
+            # 6) Final cevabı token olarak stream et (SSE formatı uyumlu).
+            yield {"event": "token", "data": {"text": answer}}
+            yield {"event": "done", "data": {"finish_reason": "stop"}}
+        except Exception as exc:
+            logger.exception("Corrective RAG stream error")
+            yield {"event": "error", "data": {"message": str(exc)}}
+            yield {"event": "done", "data": {"finish_reason": "error"}}
+
+    def _generate_draft(self, query: str, context_block: str) -> str:
+        """Context'ten taslak cevap üretir (non-streaming)."""
+        messages = [
+            SystemMessage(SYSTEM_PROMPT),
+            HumanMessage(build_user_prompt(query, context_block)),
+        ]
+        response = self._llm().invoke(messages, config=callback_config())
+        return str(getattr(response, "content", ""))
