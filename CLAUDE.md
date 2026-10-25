@@ -34,8 +34,8 @@ SupportHub — see `docs/CLIENT_BRIEF.md` for full brief.
   cross-encoder (bge-reranker-v2-m3), RAGAS, Langfuse, unstructured
 
 ## Architecture
-See `docs/ARCHITECTURE.md` (will be created in Faz 9).
-For now: base is docuflow-ai fork. Ports below.
+See `ARCHITECTURE.md` (kök dizin) — tam mimari, RAG pipeline, anti-hallucination
+katmanları. Base docuflow-ai fork'u. Ports below.
 
 ## Ports & services
 | Service | Port | Container |
@@ -47,21 +47,13 @@ For now: base is docuflow-ai fork. Ports below.
 (docuflow 3000/8000/5432, mizan 3001/8001/5433 — no conflicts)
 
 ## Current state
-**Faz 0-8 done:** Forked from docuflow-ai, rebranded to Support AI, ports 5434/8002/3002,
-own DB (support/support_test) + Docker Compose stack running. Hybrid search live:
-`POST /api/ai/search/hybrid` (vector + BM25/FTS + RRF, alpha ağırlıklı) + cross-encoder
-rerank (bge-reranker-v2-m3, lazy singleton, use_rerank default True) + hiyerarşik
-chunking (Markdown başlıkları → heading kolonu) + parent retrieval (expand_context).
-RAGAS değerlendirmesi: `POST /api/ai/evaluate/generate-set` + `/api/ai/evaluate/run`
-+ CLI `scripts/run_evaluation.py`. Chat: hybrid+rerank → güven eşiği (0.55) → LLM →
-citation doğrulaması + hallucination skoru (verification SSE event'i). Langfuse
-observability: callbacks + @observe + `POST /api/ai/feedback` — anahtarsız no-op.
-Corrective RAG: `POST /api/ai/chat/corrective`. Analitik: query_logs tablosu (her
-chat isteği loglanır, done event'i log_id taşır) + `GET /api/analytics/{stats,
-recent-queries,top-queries}` + frontend `/dashboard/admin` (KPI kartları, son
-sorgular, top-10). Not: langchain-community 0.3.31'e pin'li (ragas uyumu).
-Host dev venv: `backend/.venv` (Python 3.13; Docker image uses 3.11).
-Next: Faz 9 (docs + demo + case study).
+**TAMAMLANDI (Faz 0-9):** docuflow-ai fork'undan tam kurumsal RAG teslimatı.
+Hybrid search (BM25/FTS + vektör + RRF) → cross-encoder rerank → hiyerarşik chunking
++ parent retrieval → güven eşiği + citation doğrulama + self-critique → RAGAS +
+Langfuse + analitik paneli. 105 test, 9 faz, 10 commit. Dokümantasyon:
+`ARCHITECTURE.md`, `docs/EVALUATION.md`, `docs/DEMO_SCRIPT.md`, `docs/CASE_STUDY.md`,
+CI: `.github/workflows/test.yml`. Host dev venv: `backend/.venv` (Python 3.13;
+Docker imajı 3.11). langchain-community 0.3.31 pin'li (ragas uyumu).
 
 ## Roadmap
 - [x] Faz 0: Fork base + port + branding
@@ -73,7 +65,7 @@ Next: Faz 9 (docs + demo + case study).
 - [x] Faz 6: Langfuse observability
 - [x] Faz 7: Self-critique / corrective RAG agent
 - [x] Faz 8: Admin analytics dashboard
-- [ ] Faz 9: Docs + demo + case study
+- [x] Faz 9: Docs + demo + case study
 
 ## Code rules
 - Type hints required everywhere
