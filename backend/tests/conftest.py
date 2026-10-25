@@ -149,6 +149,7 @@ def db_cleanup() -> Iterator[None]:
         try:
             async with engine.begin() as conn:
                 await conn.execute(text("DELETE FROM documents"))
+                await conn.execute(text("DELETE FROM query_logs"))
         finally:
             await engine.dispose()
 

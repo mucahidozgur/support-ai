@@ -7,12 +7,14 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
 from app.api.deps import get_current_user
 from app.core.db import get_db
 from app.core.observability import get_langfuse_client
+from app.models.query_log import QueryLog
 from app.schemas.ai import (
     ChatRequest,
     CorrectiveChatRequest,
@@ -197,10 +199,11 @@ async def evaluate_run(
 
 
 @router.post("/feedback", response_model=FeedbackResponse)
-async def feedback(body: FeedbackRequest, current_user: UserDep) -> FeedbackResponse:
+async def feedback(body: FeedbackRequest, db: DbDep, current_user: UserDep) -> FeedbackResponse:
     """Langfuse'a kullanıcı geri bildirimi (thumbs up/down) gönderir.
 
     Observability devre dışıysa 503; Langfuse hatasında 502 döner — akışı bozmaz.
+    query_log_id verilmişse query_logs'a da feedback yazılır (analitik panosu).
     """
     client = get_langfuse_client()
     if client is None:
@@ -215,4 +218,12 @@ async def feedback(body: FeedbackRequest, current_user: UserDep) -> FeedbackResp
     except Exception as exc:
         logger.warning("Langfuse feedback gönderilemedi: %s", exc)
         raise HTTPException(status_code=502, detail="Geri bildirim gönderilemedi") from exc
+    if body.query_log_id is not None:
+        try:
+            await db.execute(
+                update(QueryLog).where(QueryLog.id == body.query_log_id).values(feedback=body.score)
+            )
+            await db.commit()
+        except Exception:
+            logger.warning("query_logs feedback güncellenemedi", exc_info=True)
     return FeedbackResponse(status="ok")

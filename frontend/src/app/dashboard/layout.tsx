@@ -57,6 +57,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             >
               AI Asistan
             </Link>
+            <Link
+              href="/dashboard/admin"
+              className="rounded-md px-3 py-2 text-gray-700 hover:bg-gray-100"
+            >
+              Analytics
+            </Link>
           </nav>
         </aside>
         <main className="flex-1 p-6">{children}</main>

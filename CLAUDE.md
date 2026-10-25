@@ -47,7 +47,7 @@ For now: base is docuflow-ai fork. Ports below.
 (docuflow 3000/8000/5432, mizan 3001/8001/5433 — no conflicts)
 
 ## Current state
-**Faz 0-7 done:** Forked from docuflow-ai, rebranded to Support AI, ports 5434/8002/3002,
+**Faz 0-8 done:** Forked from docuflow-ai, rebranded to Support AI, ports 5434/8002/3002,
 own DB (support/support_test) + Docker Compose stack running. Hybrid search live:
 `POST /api/ai/search/hybrid` (vector + BM25/FTS + RRF, alpha ağırlıklı) + cross-encoder
 rerank (bge-reranker-v2-m3, lazy singleton, use_rerank default True) + hiyerarşik
@@ -55,12 +55,13 @@ chunking (Markdown başlıkları → heading kolonu) + parent retrieval (expand_
 RAGAS değerlendirmesi: `POST /api/ai/evaluate/generate-set` + `/api/ai/evaluate/run`
 + CLI `scripts/run_evaluation.py`. Chat: hybrid+rerank → güven eşiği (0.55) → LLM →
 citation doğrulaması + hallucination skoru (verification SSE event'i). Langfuse
-observability: callbacks + @observe (search_hybrid, rerank, verify_citations) +
-`POST /api/ai/feedback` — anahtarsız ortamda tamamen no-op. Corrective RAG:
-`POST /api/ai/chat/corrective` (rewrite → re-search → draft → critique → revision).
-Not: langchain-community 0.3.31'e pin'li (0.4.x ragas 0.4.3 ile uyumsuz).
+observability: callbacks + @observe + `POST /api/ai/feedback` — anahtarsız no-op.
+Corrective RAG: `POST /api/ai/chat/corrective`. Analitik: query_logs tablosu (her
+chat isteği loglanır, done event'i log_id taşır) + `GET /api/analytics/{stats,
+recent-queries,top-queries}` + frontend `/dashboard/admin` (KPI kartları, son
+sorgular, top-10). Not: langchain-community 0.3.31'e pin'li (ragas uyumu).
 Host dev venv: `backend/.venv` (Python 3.13; Docker image uses 3.11).
-Next: Faz 8 (admin analytics dashboard).
+Next: Faz 9 (docs + demo + case study).
 
 ## Roadmap
 - [x] Faz 0: Fork base + port + branding
@@ -71,7 +72,7 @@ Next: Faz 8 (admin analytics dashboard).
 - [x] Faz 5: Citation verification + hallucination detector
 - [x] Faz 6: Langfuse observability
 - [x] Faz 7: Self-critique / corrective RAG agent
-- [ ] Faz 8: Admin analytics dashboard
+- [x] Faz 8: Admin analytics dashboard
 - [ ] Faz 9: Docs + demo + case study
 
 ## Code rules
@@ -83,7 +84,7 @@ Next: Faz 8 (admin analytics dashboard).
 - No new dependency without justification in the commit message
 
 ## Testing
-- `cd backend && pytest -v` — currently 99 tests passing
+- `cd backend && pytest -v` — currently 105 tests passing
 - After each phase: must remain ≥47 passing + add new tests
 - DB isolation: tests use `support_test` DB, never touch `support` DB
 

@@ -2,17 +2,20 @@
 
 Akış: hybrid+rerank arama → güven eşiği kontrolü → LLM stream →
 citation doğrulaması + hallucination tespiti (verification event'i).
+Her istek query_logs'a yazılır (analitik panosu).
 """
 
 import logging
+import time
 from collections.abc import AsyncIterator
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.llm import get_llm
 from app.core.observability import callback_config
+from app.models.query_log import QueryLog
 from app.schemas.ai import ChatSource
 from app.services.critique import critique_answer, rewrite_query
 from app.services.prompts import SYSTEM_PROMPT, build_context_block, build_user_prompt
@@ -25,6 +28,31 @@ INSUFFICIENT_CONTEXT_ANSWER = (
     "Bu bilgi knowledge base'de bulunmuyor. Lütfen ilgili dokümanı kontrol edin "
     "veya uzmanınıza danışın."
 )
+
+
+async def _write_query_log(
+    db: AsyncSession,
+    *,
+    log_id: UUID,
+    query: str,
+    faithfulness: float | None,
+    had_context: bool,
+    latency_ms: int,
+) -> None:
+    """Sorgu metriğini query_logs'a yazar; hata stream'i asla bozmaz."""
+    try:
+        db.add(
+            QueryLog(
+                id=log_id,
+                query=query[:2000],
+                faithfulness=faithfulness,
+                had_context=had_context,
+                latency_ms=latency_ms,
+            )
+        )
+        await db.commit()
+    except Exception:
+        logger.warning("Query log yazılamadı", exc_info=True)
 
 
 class ChatService:
@@ -54,8 +82,17 @@ class ChatService:
         """SSE event dict'leri üretir: sources, token, verification, done, error.
 
         Yeterli context yoksa LLM çağrılmaz; sabit "bilgi yok" cevabı stream
-        edilir ve done event'i insufficient_context=true taşır.
+        edilir ve done event'i insufficient_context=true taşır. Her akış sonunda
+        query_logs'a metrik yazılır; done event'i log_id taşır (feedback için).
         """
+        start = time.perf_counter()
+        log_id = uuid4()
+        had_context = False
+        faithfulness: float | None = None
+
+        def _latency_ms() -> int:
+            return int((time.perf_counter() - start) * 1000)
+
         try:
             if document_ids is not None:
                 # Doküman filtresi istenmişse klasik vektör araması kullan
@@ -67,12 +104,25 @@ class ChatService:
             if not has_sufficient_context(chunks):
                 yield {"event": "sources", "data": []}
                 yield {"event": "token", "data": {"text": INSUFFICIENT_CONTEXT_ANSWER}}
+                await _write_query_log(
+                    self.db,
+                    log_id=log_id,
+                    query=query,
+                    faithfulness=None,
+                    had_context=False,
+                    latency_ms=_latency_ms(),
+                )
                 yield {
                     "event": "done",
-                    "data": {"finish_reason": "insufficient_context", "insufficient_context": True},
+                    "data": {
+                        "finish_reason": "insufficient_context",
+                        "insufficient_context": True,
+                        "log_id": str(log_id),
+                    },
                 }
                 return
 
+            had_context = True
             sources = [ChatSource.model_validate(chunk).model_dump(mode="json") for chunk in chunks]
             yield {"event": "sources", "data": sources}
 
@@ -88,12 +138,30 @@ class ChatService:
                     yield {"event": "token", "data": {"text": chunk.content}}
 
             if verify:
-                yield await self._verification_event(query, chunks, "".join(answer_parts))
-            yield {"event": "done", "data": {"finish_reason": "stop"}}
+                verification = await self._verification_event(query, chunks, "".join(answer_parts))
+                faithfulness = verification["data"].get("faithfulness")
+                yield verification
+            await _write_query_log(
+                self.db,
+                log_id=log_id,
+                query=query,
+                faithfulness=faithfulness,
+                had_context=True,
+                latency_ms=_latency_ms(),
+            )
+            yield {"event": "done", "data": {"finish_reason": "stop", "log_id": str(log_id)}}
         except Exception as exc:
             logger.exception("Chat stream error")
+            await _write_query_log(
+                self.db,
+                log_id=log_id,
+                query=query,
+                faithfulness=None,
+                had_context=had_context,
+                latency_ms=_latency_ms(),
+            )
             yield {"event": "error", "data": {"message": str(exc)}}
-            yield {"event": "done", "data": {"finish_reason": "error"}}
+            yield {"event": "done", "data": {"finish_reason": "error", "log_id": str(log_id)}}
 
     async def _verification_event(
         self, query: str, chunks: list[dict], answer: str
@@ -145,6 +213,12 @@ class CorrectiveChatService:
         self, query: str, max_retries: int = 2
     ) -> AsyncIterator[dict[str, object]]:
         """SSE event'leri üretir: sources, rewrite?, critique?, revision?, token, done."""
+        start = time.perf_counter()
+        log_id = uuid4()
+
+        def _latency_ms() -> int:
+            return int((time.perf_counter() - start) * 1000)
+
         try:
             chunks = await self.rag.search_hybrid_rerank(query=query, limit=5)
 
@@ -159,11 +233,20 @@ class CorrectiveChatService:
                 if not has_sufficient_context(chunks):
                     yield {"event": "sources", "data": []}
                     yield {"event": "token", "data": {"text": INSUFFICIENT_CONTEXT_ANSWER}}
+                    await _write_query_log(
+                        self.db,
+                        log_id=log_id,
+                        query=query,
+                        faithfulness=None,
+                        had_context=False,
+                        latency_ms=_latency_ms(),
+                    )
                     yield {
                         "event": "done",
                         "data": {
                             "finish_reason": "insufficient_context",
                             "insufficient_context": True,
+                            "log_id": str(log_id),
                         },
                     }
                     return
@@ -197,11 +280,27 @@ class CorrectiveChatService:
 
             # 6) Final cevabı token olarak stream et (SSE formatı uyumlu).
             yield {"event": "token", "data": {"text": answer}}
-            yield {"event": "done", "data": {"finish_reason": "stop"}}
+            await _write_query_log(
+                self.db,
+                log_id=log_id,
+                query=query,
+                faithfulness=None,  # corrective akışta verification yok
+                had_context=True,
+                latency_ms=_latency_ms(),
+            )
+            yield {"event": "done", "data": {"finish_reason": "stop", "log_id": str(log_id)}}
         except Exception as exc:
             logger.exception("Corrective RAG stream error")
+            await _write_query_log(
+                self.db,
+                log_id=log_id,
+                query=query,
+                faithfulness=None,
+                had_context=False,
+                latency_ms=_latency_ms(),
+            )
             yield {"event": "error", "data": {"message": str(exc)}}
-            yield {"event": "done", "data": {"finish_reason": "error"}}
+            yield {"event": "done", "data": {"finish_reason": "error", "log_id": str(log_id)}}
 
     def _generate_draft(self, query: str, context_block: str) -> str:
         """Context'ten taslak cevap üretir (non-streaming)."""

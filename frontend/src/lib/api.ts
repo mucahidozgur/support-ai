@@ -116,6 +116,30 @@ export interface ChatSource {
   similarity: number;
 }
 
+export interface AnalyticsStats {
+  total_queries: number;
+  avg_faithfulness: number;
+  insufficient_context_rate: number;
+  avg_latency_ms: number;
+  feedback_positive: number;
+  feedback_negative: number;
+}
+
+export interface RecentQueryItem {
+  id: string;
+  query: string;
+  faithfulness: number | null;
+  feedback: number | null;
+  had_context: boolean;
+  latency_ms: number | null;
+  created_at: string;
+}
+
+export interface TopQueryItem {
+  query: string;
+  count: number;
+}
+
 // API methods
 export const api = {
   async login(username: string, password: string): Promise<LoginResponse> {
@@ -169,5 +193,17 @@ export const api = {
       `/api/documents/${id}/index`,
       { method: "POST" }
     );
+  },
+
+  getAnalyticsStats(): Promise<AnalyticsStats> {
+    return apiFetch<AnalyticsStats>("/api/analytics/stats");
+  },
+
+  getRecentQueries(limit = 20): Promise<RecentQueryItem[]> {
+    return apiFetch<RecentQueryItem[]>(`/api/analytics/recent-queries?limit=${limit}`);
+  },
+
+  getTopQueries(): Promise<TopQueryItem[]> {
+    return apiFetch<TopQueryItem[]>("/api/analytics/top-queries");
   },
 };

@@ -155,6 +155,8 @@ class FeedbackRequest(BaseModel):
     trace_id: str = Field(min_length=1, max_length=128)
     score: int = Field(ge=0, le=1)
     comment: str | None = Field(default=None, max_length=2000)
+    # Chat done event'indeki log_id: query_logs'a da feedback yazılır (analitik).
+    query_log_id: UUID | None = None
 
 
 class FeedbackResponse(BaseModel):
